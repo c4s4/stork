@@ -2,18 +2,18 @@ version: "3.7"
 
 services:
 
-  mariadb:
-    container_name: mariadb
-    image: mariadb:10.4
+  mysql:
+    container_name: mysql
+    image: mysql:8.0.21
     restart: on-failure
-    env_file: .env
+    env_file: ../.env
     ports:
     - 3306:3306
     volumes:
-    - mariadb:/var/lib/mysql
+    - mysql:/var/lib/mysql
     - ./test:/test
     networks:
     - default
 
 volumes:
-  mariadb:
+  mysql:
