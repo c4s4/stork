@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -17,7 +18,11 @@ import (
 const (
 	// QueryMetaExists is the query to check that meta table exists
 	QueryMetaExists = `
-	SELECT count(*) FROM _stork;
+	SELECT count(*) FROM _stork
+	`
+	// QueryEraseMeta is the query to erase meta table
+	QueryEraseMeta = `
+	DROP TABLE IF EXISTS _stork
 	`
 	// QueryCreateMeta is the query to create meta table
 	QueryCreateMeta = `
@@ -43,23 +48,63 @@ const (
 	`
 )
 
+var db *sql.DB
+var mute bool
+var white bool
+
 // ParseCommandLine does what you think
-func ParseCommandLine() (string, string, error) {
+func ParseCommandLine() (string, string, bool, bool, bool, error) {
 	env := flag.String("env", "", "Dotenv file to load")
+	init := flag.Bool("init", false, "Run all scripts")
+	mute := flag.Bool("mute", false, "Don't print logs")
+	white := flag.Bool("white", false, "Don't print color")
 	flag.Parse()
 	dirs := flag.Args()
 	dir := "."
 	if len(dirs) > 1 {
-		return "", "", fmt.Errorf("You can pass only one directory")
+		return "", "", false, false, false, fmt.Errorf("You can pass only one directory")
 	}
 	if len(dirs) == 1 {
 		dir = dirs[0]
 	}
-	return *env, dir, nil
+	return *env, dir, *init, *mute, *white, nil
+}
+
+// Print prints given text if not mute
+func Print(text string, args ...interface{}) {
+	if !mute {
+		if args != nil {
+			text = fmt.Sprintf(text, args...)
+		}
+		fmt.Println(text)
+	}
+}
+
+// Error prints an error message and exits
+func Error(text string, args ...interface{}) {
+	error := "\033[1;31mERROR\033[0m "
+	if white {
+		error = "ERROR "
+	}
+	if args != nil {
+		text = fmt.Sprintf(text, args...)
+	}
+	println(error + text)
+	os.Exit(1)
+}
+
+// PrintOK prints OK in green
+func PrintOK() {
+	ok := "\033[1;32mOK\033[0m"
+	if white {
+		ok = "OK"
+	}
+	Print(ok)
 }
 
 // LoadEnv loads environment in given file
 func LoadEnv(filename string) error {
+	Print("Loading environment %s", filename)
 	file, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -86,6 +131,38 @@ func LoadEnv(filename string) error {
 	return nil
 }
 
+// ConnectDatabase returns database connection
+func ConnectDatabase() *sql.DB {
+	var err error
+	source := os.Getenv("MYSQL_USERNAME") + ":" + os.Getenv("MYSQL_PASSWORD") +
+		"@tcp(" + os.Getenv("MYSQL_HOSTNAME") + ")/" + os.Getenv("MYSQL_DATABASE")
+	db, err := sql.Open("mysql", source)
+	if err != nil {
+		Error("connecting database: %v", err)
+	}
+	return db
+}
+
+// EraseMetaTable initializes meta tables if necessary
+func EraseMetaTable() error {
+	Print("Erasing meta table")
+	_, err := db.Exec(QueryEraseMeta)
+	return err
+}
+
+// CreateMetaTable initializes meta tables if necessary
+func CreateMetaTable() error {
+	_, err := db.Exec(QueryMetaExists)
+	if err != nil {
+		Print("Creating meta table")
+		_, err := db.Exec(QueryCreateMeta)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ScriptsList returns the list of SQL scripts in given directory
 func ScriptsList(dir string) ([]string, error) {
 	files, err := ioutil.ReadDir(dir)
@@ -98,44 +175,14 @@ func ScriptsList(dir string) ([]string, error) {
 			scripts = append(scripts, file.Name())
 		}
 	}
+	sort.Strings(scripts)
 	return scripts, nil
-}
-
-// ConnectDatabase returns database connection
-func ConnectDatabase() (*sql.DB, error) {
-	source := os.Getenv("MYSQL_USERNAME") + ":" + os.Getenv("MYSQL_PASSWORD") +
-		"@" + os.Getenv("MYSQL_HOSTNAME") + "/" + os.Getenv("MYSQL_DATABASE")
-	return sql.Open("mysql", source)
-}
-
-// InitMetaTable initializes meta tables if necessary
-func InitMetaTable() error {
-	db, err := ConnectDatabase()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	_, err = db.Query(QueryMetaExists)
-	if err != nil {
-		fmt.Println("Creating meta table")
-		create, err := db.Query(QueryCreateMeta)
-		if err != nil {
-			return err
-		}
-		defer create.Close()
-	}
-	return nil
 }
 
 // ScriptPassed tells if given script already passed
 func ScriptPassed(script string) (bool, error) {
-	db, err := ConnectDatabase()
-	if err != nil {
-		return false, err
-	}
-	defer db.Close()
 	var count int
-	err = db.QueryRow(QueryScriptPassed, script).Scan(&count)
+	err := db.QueryRow(QueryScriptPassed, script).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -144,7 +191,7 @@ func ScriptPassed(script string) (bool, error) {
 
 // RunScript runs given script
 func RunScript(dir, script string) error {
-	fmt.Printf("Passing script %s\n", script)
+	Print("Running script %s", script)
 	file, err := os.Open(filepath.Join(dir, script))
 	if err != nil {
 		return err
@@ -154,24 +201,28 @@ func RunScript(dir, script string) error {
 	if err != nil {
 		return err
 	}
-	db, err := ConnectDatabase()
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	result, err := db.Query(string(source))
-	if err != nil {
-		defer result.Close()
+	for _, query := range strings.Split(string(source), ";\n") {
+		query := strings.TrimSpace(query)
+		if query != "" {
+			_, err := db.Exec(query)
+			if err != nil {
+				tx.Rollback()
+				RecordResult(script, err)
+				Error("running script %s: %v", script, err)
+			}
+		}
 	}
-	RecordResult(script, err)
+	tx.Commit()
+	RecordResult(script, nil)
 	return nil
 }
 
 // RecordResult record script result in meta table
 func RecordResult(script string, err error) error {
-	db, err := ConnectDatabase()
-	if err != nil {
-		return err
-	}
 	var success bool
 	var message string
 	if err != nil {
@@ -181,48 +232,53 @@ func RecordResult(script string, err error) error {
 		success = true
 		message = ""
 	}
-	result, err := db.Query(QueryRecordResult, script, success, message)
+	_, err = db.Exec(QueryRecordResult, script, success, message)
 	if err != nil {
 		return err
 	}
-	defer result.Close()
 	return nil
 }
 
 func main() {
-	env, dir, err := ParseCommandLine()
+	env, dir, init, isMute, isWhite, err := ParseCommandLine()
+	mute = isMute
+	white = isWhite
 	if err != nil {
-		fmt.Printf("Error parsing command line: %v\n", err)
-		os.Exit(1)
+		Error("parsing command line: %v", err)
 	}
 	if env != "" {
 		err := LoadEnv(env)
 		if err != nil {
-			fmt.Printf("Error loading dotenv file %s: %v\n", env, err)
-			os.Exit(1)
+			Error("loading dotenv file %s: %v", env, err)
+		}
+	}
+	db = ConnectDatabase()
+	defer db.Close()
+	if init {
+		err = EraseMetaTable()
+		if err != nil {
+			Error("erasing meta table: %v", err)
 		}
 	}
 	scripts, err := ScriptsList(dir)
 	if err != nil {
-		fmt.Printf("Error getting scripts list: %v\n", err)
-		os.Exit(1)
+		Error("getting scripts list: %v", err)
 	}
-	err = InitMetaTable()
+	err = CreateMetaTable()
 	if err != nil {
-		fmt.Printf("Error initializing meta tables: %v\n", err)
-		os.Exit(1)
+		Error("initializing meta tables: %v", err)
 	}
 	for _, script := range scripts {
 		passed, err := ScriptPassed(script)
 		if err != nil {
-			fmt.Printf("Error determining if script %s passed: %v\n", script, err)
-			os.Exit(1)
+			Error("determining if script %s passed: %v", script, err)
 		}
 		if !passed {
 			err = RunScript(dir, script)
 			if err != nil {
-				fmt.Printf("Error running script %s: %v\n", script, err)
+				Error("running script %s: %v", script, err)
 			}
 		}
 	}
+	PrintOK()
 }

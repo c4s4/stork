@@ -12,7 +12,7 @@ mysql: # Start Mysql
 
 test: go-build # Run test
 	$(title)
-	@$(BUILD_DIR)/stork -env=.env test
+	@$(BUILD_DIR)/stork -env=.env -init test
 
 shell: # Open a mysql shell
 	$(title)
