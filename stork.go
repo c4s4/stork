@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -171,7 +172,8 @@ func ScriptsList(dir string) ([]string, error) {
 	}
 	var scripts []string
 	for _, file := range files {
-		if strings.HasSuffix(strings.ToLower(file.Name()), ".sql") {
+		match, _ := regexp.MatchString(`\d+.*\.sql`, strings.ToLower(file.Name()))
+		if match {
 			scripts = append(scripts, file.Name())
 		}
 	}
