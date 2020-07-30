@@ -278,6 +278,8 @@ func main() {
 			if err != nil {
 				Error("running script %s: %v", script, err)
 			}
+		} else {
+			Print("Skipping script %s", script)
 		}
 	}
 	PrintOK()
