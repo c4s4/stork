@@ -19,33 +19,35 @@ import (
 const (
 	// QueryMetaExists is the query to check that meta table exists
 	QueryMetaExists = `
-	SELECT count(*) FROM _stork
+	SELECT count(*) FROM stork.script;
 	`
 	// QueryEraseMeta is the query to erase meta table
 	QueryEraseMeta = `
-	DROP TABLE IF EXISTS _stork
+	DROP TABLE IF EXISTS stork.script;
 	`
 	// QueryCreateMeta is the query to create meta table
 	QueryCreateMeta = `
-	CREATE TABLE _stork (
+	CREATE DATABASE IF NOT EXISTS stork;
+	CREATE TABLE stork.script (
 		id INTEGER NOT NULL AUTO_INCREMENT,
-		script TEXT NOT NULL,
+		name TEXT NOT NULL,
 		date DATETIME DEFAULT CURRENT_TIMESTAMP,
 		success BOOLEAN NOT NULL,
 		error TEXT,
 		PRIMARY KEY (id)
-	)`
+	);
+	`
 	// QueryScriptPassed is the query to determine if a script already passed
 	QueryScriptPassed = `
 	SELECT count(*)
-	  FROM _stork
-	 WHERE script = ?
-	   AND success = 1
+	  FROM stork.script
+	 WHERE name = ?
+	   AND success = 1;
 	`
 	// QueryRecordResult is the query to record script passing
 	QueryRecordResult = `
-	INSERT INTO _stork (script, success, error)
-	VALUES (?, ?, ?)
+	INSERT INTO stork.script (name, success, error)
+	VALUES (?, ?, ?);
 	`
 )
 
@@ -136,7 +138,7 @@ func LoadEnv(filename string) error {
 func ConnectDatabase() *sql.DB {
 	var err error
 	source := os.Getenv("MYSQL_USERNAME") + ":" + os.Getenv("MYSQL_PASSWORD") +
-		"@tcp(" + os.Getenv("MYSQL_HOSTNAME") + ")/" + os.Getenv("MYSQL_DATABASE")
+		"@tcp(" + os.Getenv("MYSQL_HOSTNAME") + ")/"
 	db, err := sql.Open("mysql", source)
 	if err != nil {
 		Error("connecting database: %v", err)
@@ -147,16 +149,15 @@ func ConnectDatabase() *sql.DB {
 // EraseMetaTable initializes meta tables if necessary
 func EraseMetaTable() error {
 	Print("Erasing meta table")
-	_, err := db.Exec(QueryEraseMeta)
-	return err
+	return ExecuteScript(QueryEraseMeta)
 }
 
 // CreateMetaTable initializes meta tables if necessary
 func CreateMetaTable() error {
-	_, err := db.Exec(QueryMetaExists)
+	err := ExecuteScript(QueryMetaExists)
 	if err != nil {
 		Print("Creating meta table")
-		_, err := db.Exec(QueryCreateMeta)
+		err := ExecuteScript(QueryCreateMeta)
 		if err != nil {
 			return err
 		}
@@ -189,6 +190,20 @@ func ScriptPassed(script string) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// ExecuteScript executes given script
+func ExecuteScript(source string) error {
+	for _, query := range strings.Split(string(source), ";\n") {
+		query := strings.TrimSpace(query)
+		if query != "" {
+			_, err := db.Exec(query)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // RunScript runs given script
