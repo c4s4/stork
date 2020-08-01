@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	// RegexpScript is the regexp for scripts to run
+	RegexpScript = `^\d+.*\.sql$`
 	// QueryMetaExists is the query to check that meta table exists
 	QueryMetaExists = `
 	SELECT count(*) FROM stork.script;
@@ -54,23 +56,34 @@ const (
 var db *sql.DB
 var mute bool
 var white bool
+var dry bool
 
 // ParseCommandLine does what you think
-func ParseCommandLine() (string, string, bool, bool, bool, error) {
+func ParseCommandLine() (string, string, bool, bool, bool, bool, error) {
+	flag.Usage = func() {
+		fmt.Println(`Usage: stork [-env=file] [-init] [-dry] [-mute] [-white] dir
+-env=file  Dotenv file to load
+-init      Run all scripts
+-dry       Dry run (won't execute scripts)
+-mute      Don't print logs
+-white     Don't print color
+dir        Directory of migration scripts`)
+	}
 	env := flag.String("env", "", "Dotenv file to load")
 	init := flag.Bool("init", false, "Run all scripts")
 	mute := flag.Bool("mute", false, "Don't print logs")
 	white := flag.Bool("white", false, "Don't print color")
+	dry := flag.Bool("dry", false, "Dry run (won't execute scripts)")
 	flag.Parse()
 	dirs := flag.Args()
 	dir := "."
 	if len(dirs) > 1 {
-		return "", "", false, false, false, fmt.Errorf("You can pass only one directory")
+		return "", "", false, false, false, false, fmt.Errorf("You can pass only one directory")
 	}
 	if len(dirs) == 1 {
 		dir = dirs[0]
 	}
-	return *env, dir, *init, *mute, *white, nil
+	return *env, dir, *init, *mute, *white, *dry, nil
 }
 
 // Print prints given text if not mute
@@ -149,6 +162,9 @@ func ConnectDatabase() *sql.DB {
 // EraseMetaTable initializes meta tables if necessary
 func EraseMetaTable() error {
 	Print("Erasing meta table")
+	if dry {
+		return nil
+	}
 	return ExecuteScript(QueryEraseMeta)
 }
 
@@ -157,6 +173,9 @@ func CreateMetaTable() error {
 	err := ExecuteScript(QueryMetaExists)
 	if err != nil {
 		Print("Creating meta table")
+		if dry {
+			return nil
+		}
 		err := ExecuteScript(QueryCreateMeta)
 		if err != nil {
 			return err
@@ -173,7 +192,10 @@ func ScriptsList(dir string) ([]string, error) {
 	}
 	var scripts []string
 	for _, file := range files {
-		match, _ := regexp.MatchString(`\d+.*\.sql`, strings.ToLower(file.Name()))
+		match, err := regexp.MatchString(RegexpScript, strings.ToLower(file.Name()))
+		if err != nil {
+			return nil, err
+		}
 		if match {
 			scripts = append(scripts, file.Name())
 		}
@@ -209,6 +231,9 @@ func ExecuteScript(source string) error {
 // RunScript runs given script
 func RunScript(dir, script string) error {
 	Print("Running script %s", script)
+	if dry {
+		return nil
+	}
 	file, err := os.Open(filepath.Join(dir, script))
 	if err != nil {
 		return err
@@ -240,6 +265,9 @@ func RunScript(dir, script string) error {
 
 // RecordResult record script result in meta table
 func RecordResult(script string, err error) error {
+	if dry {
+		return nil
+	}
 	var success bool
 	var message string
 	if err != nil {
@@ -257,9 +285,10 @@ func RecordResult(script string, err error) error {
 }
 
 func main() {
-	env, dir, init, isMute, isWhite, err := ParseCommandLine()
+	env, dir, init, isMute, isWhite, isDry, err := ParseCommandLine()
 	mute = isMute
 	white = isWhite
+	dry = isDry
 	if err != nil {
 		Error("parsing command line: %v", err)
 	}
@@ -289,6 +318,9 @@ func main() {
 		passed, err := ScriptPassed(script)
 		if err != nil {
 			Error("determining if script %s passed: %v", script, err)
+		}
+		if dry && init {
+			passed = false
 		}
 		if !passed {
 			err = RunScript(dir, script)
