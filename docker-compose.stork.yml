@@ -1,0 +1,25 @@
+version: "3.7"
+
+services:
+
+  mysql:
+    container_name: mysql
+    networks:
+    - default
+    - internal
+
+  stork:
+    container_name: stork
+    image: casa/stork:latest
+    depends_on:
+    - mysql
+    env_file: .env
+    command: ["/sql"]
+    volumes:
+    - ./sql:/sql
+    networks:
+    - internal
+
+networks:
+  internal:
+    internal: true
