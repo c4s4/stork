@@ -29,7 +29,7 @@ test: go-build # Run test
 docker: clean # Build docker image
 	$(title)
 	@mkdir -p $(BUILD_DIR)
-	@CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o $(BUILD_DIR)/stork .
+	@CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags "-s -f" -o $(BUILD_DIR)/stork .
 	@docker build -t casa/stork .
 
 test-docker: # Test docker image
