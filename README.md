@@ -12,7 +12,7 @@ Unix users may download and install latest *stOrk* release with command:
 sh -c "$(curl https://sweetohm.net/dist/stork/install)"
 ```
 
-If *curl* is not installed on you system, you might run:
+If *curl* is not installed on your system, you might use *wget* instead, running:
 
 ```bash
 sh -c "$(wget -O - https://sweetohm.net/dist/stork/install)"
