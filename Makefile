@@ -4,11 +4,13 @@ include ~/.make/Golang.mk
 include .env
 export
 
-GONAME = "stork"
-
 mysql: # Start Mysql
 	$(title)
 	@docker-compose up -d
+
+stop: # Stop Mysql
+	$(title)
+	@docker-compose down
 
 shell: # Connect to Mysql
 	$(title)
