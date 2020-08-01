@@ -44,5 +44,5 @@ publish: docker # Publish docker image
 	$(title)
 	@docker push casa/stork:$(VERSION)
 
-release: go-tag go-deploy go-archive # Perform a release
+release: go-tag go-deploy go-archive # Perform a release (must pass RELEASE=X.Y.Z on command line)
 	@echo "$(GRE)OK$(EBD) Release done!"
