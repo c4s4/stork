@@ -26,11 +26,13 @@ Otherwise, you can download latest binary archive at <https://github.com/c4s4/st
 
 ### Gophers
 
-If a recent version of Go is installed on your system, you may install *stOrk* with:
+If a recent version of Go is installed on your system, you may install version of *stOrk* on *master* branch with:
 
 ```
 $ go get github.com/c4s4/stork
 ```
+
+This will build *stOrk* and put binary in *bin* directory of your *GOPATH*.
 
 ## Usage
 
@@ -38,6 +40,13 @@ To run migration scripts in *sql* directory, type:
 
 ```
 $ stork sql
+```
+
+If you pass no directory on command line, *stOrk* will look for migration scripts in current directory. It will run SQL scripts (with *.sql* extension) which name starts with digits. Thus *000_init.sql* will run while *init.sql* and *000_init* won't. Scripts are executed in lexical order.
+
+*stOrk* keeps tracks of scripts it runs in *script* table of the *stork* database that looks like follows:
+
+```
 ```
 
 ## Docker
