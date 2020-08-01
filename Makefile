@@ -34,7 +34,7 @@ docker: clean # Build docker image
 
 test-docker: # Test docker image
 	$(title)
-	@docker run --network host --rm --volume=sql:/sql --env-file=.env casa/stork -init /sql
+	@docker run --network host --rm --volume=$(shell pwd)/sql:/sql --env-file=.env casa/stork -init /sql
 
 publish: docker # Publish docker image
 	$(title)

@@ -283,7 +283,7 @@ func main() {
 	}
 	err = CreateMetaTable()
 	if err != nil {
-		Error("initializing meta tables: %v", err)
+		Error("creating meta tables: %v", err)
 	}
 	for _, script := range scripts {
 		passed, err := ScriptPassed(script)
