@@ -4,6 +4,8 @@ include ~/.make/Golang.mk
 include .env
 export
 
+VERSION := "UNKNOWN"
+
 mysql: # Start Mysql
 	$(title)
 	@docker-compose up -d
@@ -28,11 +30,11 @@ test: go-build # Run test
 	$(title)
 	@$(BUILD_DIR)/stork -env=.env -init sql
 
-docker: clean # Build docker image
+docker: go-clean # Build docker image
 	$(title)
 	@mkdir -p $(BUILD_DIR)
 	@CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags "-s -f" -o $(BUILD_DIR)/stork .
-	@docker build -t casa/stork .
+	@docker build -t casa/stork:$(VERSION) .
 
 test-docker: # Test docker image
 	$(title)
@@ -40,4 +42,7 @@ test-docker: # Test docker image
 
 publish: docker # Publish docker image
 	$(title)
-	@docker push casa/stork
+	@docker push casa/stork:$(VERSION)
+
+release: go-tag go-deploy go-archive # Perform a release
+	@echo "$(GRE)OK$(EBD) Release done!"

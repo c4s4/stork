@@ -53,20 +53,23 @@ const (
 	`
 )
 
+// Version should be provided at compile time
+var Version string
 var db *sql.DB
 var mute bool
 var white bool
 var dry bool
 
 // ParseCommandLine does what you think
-func ParseCommandLine() (string, string, bool, bool, bool, bool, error) {
+func ParseCommandLine() (string, string, bool, bool, bool, bool, bool, error) {
 	flag.Usage = func() {
-		fmt.Println(`Usage: stork [-env=file] [-init] [-dry] [-mute] [-white] dir
+		fmt.Println(`Usage: stork [-env=file] [-init] [-dry] [-mute] [-white] [-version] dir
 -env=file  Dotenv file to load
 -init      Run all scripts
 -dry       Dry run (won't execute scripts)
 -mute      Don't print logs
 -white     Don't print color
+-version   Print version and exit
 dir        Directory of migration scripts`)
 	}
 	env := flag.String("env", "", "Dotenv file to load")
@@ -74,16 +77,17 @@ dir        Directory of migration scripts`)
 	mute := flag.Bool("mute", false, "Don't print logs")
 	white := flag.Bool("white", false, "Don't print color")
 	dry := flag.Bool("dry", false, "Dry run (won't execute scripts)")
+	version := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 	dirs := flag.Args()
 	dir := "."
 	if len(dirs) > 1 {
-		return "", "", false, false, false, false, fmt.Errorf("You can pass only one directory")
+		return "", "", false, false, false, false, false, fmt.Errorf("You can pass only one directory")
 	}
 	if len(dirs) == 1 {
 		dir = dirs[0]
 	}
-	return *env, dir, *init, *mute, *white, *dry, nil
+	return *env, dir, *init, *mute, *white, *dry, *version, nil
 }
 
 // Print prints given text if not mute
@@ -285,13 +289,17 @@ func RecordResult(script string, err error) error {
 }
 
 func main() {
-	env, dir, init, isMute, isWhite, isDry, err := ParseCommandLine()
-	mute = isMute
-	white = isWhite
-	dry = isDry
+	env, dir, init, isMute, isWhite, isDry, version, err := ParseCommandLine()
 	if err != nil {
 		Error("parsing command line: %v", err)
 	}
+	if version {
+		Print(Version)
+		os.Exit(0)
+	}
+	mute = isMute
+	white = isWhite
+	dry = isDry
 	if env != "" {
 		err := LoadEnv(env)
 		if err != nil {
