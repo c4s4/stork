@@ -61,11 +61,12 @@ var white bool
 var dry bool
 
 // ParseCommandLine does what you think
-func ParseCommandLine() (string, string, bool, bool, bool, bool, bool, error) {
+func ParseCommandLine() (string, string, bool, bool, bool, bool, bool, bool, error) {
 	flag.Usage = func() {
-		fmt.Println(`Usage: stork [-env=file] [-init] [-dry] [-mute] [-white] [-version] dir
+		fmt.Println(`Usage: stork [-env=file] [-init] [-fill] [-dry] [-mute] [-white] [-version] dir
 -env=file  Dotenv file to load
 -init      Run all scripts
+-fill      Fill script table with all migration scripts
 -dry       Dry run (won't execute scripts)
 -mute      Don't print logs
 -white     Don't print color
@@ -74,6 +75,7 @@ dir        Directory of migration scripts`)
 	}
 	env := flag.String("env", "", "Dotenv file to load")
 	init := flag.Bool("init", false, "Run all scripts")
+	fill := flag.Bool("fill", false, "Fill script table with all migration scripts")
 	mute := flag.Bool("mute", false, "Don't print logs")
 	white := flag.Bool("white", false, "Don't print color")
 	dry := flag.Bool("dry", false, "Dry run (won't execute scripts)")
@@ -82,12 +84,12 @@ dir        Directory of migration scripts`)
 	dirs := flag.Args()
 	dir := "."
 	if len(dirs) > 1 {
-		return "", "", false, false, false, false, false, fmt.Errorf("You can pass only one directory")
+		return "", "", false, false, false, false, false, false, fmt.Errorf("You can pass only one directory")
 	}
 	if len(dirs) == 1 {
 		dir = dirs[0]
 	}
-	return *env, dir, *init, *mute, *white, *dry, *version, nil
+	return *env, dir, *init, *fill, *dry, *mute, *white, *version, nil
 }
 
 // Print prints given text if not mute
@@ -111,6 +113,13 @@ func Error(text string, args ...interface{}) {
 	}
 	println(error + text)
 	os.Exit(1)
+}
+
+// CheckError prints message on error
+func CheckError(err error, message string, args ...interface{}) {
+	if err != nil {
+		Error(message, args, err)
+	}
 }
 
 // PrintOK prints OK in green
@@ -254,10 +263,12 @@ func RunScript(dir, script string) error {
 	for _, query := range strings.Split(string(source), ";\n") {
 		query := strings.TrimSpace(query)
 		if query != "" {
-			_, err := db.Exec(query)
-			if err != nil {
+			if _, err := db.Exec(query); err != nil {
 				tx.Rollback()
-				RecordResult(script, err)
+				err = RecordResult(script, err)
+				if err != nil {
+					return err
+				}
 				Error("running script %s: %v", script, err)
 			}
 		}
@@ -281,63 +292,84 @@ func RecordResult(script string, err error) error {
 		success = true
 		message = ""
 	}
-	_, err = db.Exec(QueryRecordResult, script, success, message)
-	if err != nil {
+	if _, err = db.Exec(QueryRecordResult, script, success, message); err != nil {
 		return err
 	}
 	return nil
 }
 
-func main() {
-	env, dir, init, isMute, isWhite, isDry, version, err := ParseCommandLine()
-	if err != nil {
-		Error("parsing command line: %v", err)
+// PrintVersion prints version and exit
+func PrintVersion() {
+	Print(Version)
+	os.Exit(0)
+}
+
+// Env load dotenv file
+func Env(env string) {
+	err := LoadEnv(env)
+	CheckError(err, "loading dotenv file %s: %v", env)
+}
+
+// RunFill fills script table with migrations scripts
+func RunFill (dir string) {
+	err := EraseMetaTable()
+	CheckError(err, "erasing meta table: %v")
+	err = CreateMetaTable()
+	CheckError(err, "creating meta tables: %v")
+	scripts, err := ScriptsList(dir)
+	CheckError(err, "getting scripts list: %v")
+	for _, script := range scripts {
+		Print("Filling script %s", script)
+		err = RecordResult(script, err)
+		CheckError(err, "recording script: %v")
 	}
-	if version {
-		Print(Version)
-		os.Exit(0)
-	}
-	mute = isMute
-	white = isWhite
-	dry = isDry
-	if env != "" {
-		err := LoadEnv(env)
-		if err != nil {
-			Error("loading dotenv file %s: %v", env, err)
-		}
-	}
-	db = ConnectDatabase()
-	defer db.Close()
+}
+
+// RunMain runs migrations
+func RunMain(dir string, init bool) {
 	if init {
-		err = EraseMetaTable()
-		if err != nil {
-			Error("erasing meta table: %v", err)
-		}
+		err := EraseMetaTable()
+		CheckError(err, "erasing meta table: %v")
 	}
 	scripts, err := ScriptsList(dir)
-	if err != nil {
-		Error("getting scripts list: %v", err)
-	}
+	CheckError(err, "getting scripts list: %v")
 	err = CreateMetaTable()
-	if err != nil {
-		Error("creating meta tables: %v", err)
-	}
+	CheckError(err, "creating meta tables: %v")
 	for _, script := range scripts {
 		passed, err := ScriptPassed(script)
-		if err != nil {
-			Error("determining if script %s passed: %v", script, err)
-		}
+		CheckError(err, "determining if script %s passed: %v", script)
 		if dry && init {
 			passed = false
 		}
 		if !passed {
 			err = RunScript(dir, script)
-			if err != nil {
-				Error("running script %s: %v", script, err)
-			}
+			CheckError(err, "running script %s: %v", script)
 		} else {
 			Print("Skipping script %s", script)
 		}
+	}
+}
+
+func main() {
+	var env, dir string
+	var init, fill, version bool
+	var err error
+	env, dir, init, fill, dry, mute, white, version, err = ParseCommandLine()
+	if err != nil {
+		Error("parsing command line: %v", err)
+	}
+	if version {
+		PrintVersion()
+	}
+	if env != "" {
+		Env(env)
+	}
+	db = ConnectDatabase()
+	defer db.Close()
+	if fill {
+		RunFill(dir)
+	} else {
+		RunMain(dir, init)
 	}
 	PrintOK()
 }
