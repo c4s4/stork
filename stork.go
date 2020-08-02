@@ -117,7 +117,8 @@ func Error(text string, args ...interface{}) {
 // CheckError prints message on error
 func CheckError(err error, message string, args ...interface{}) {
 	if err != nil {
-		Error(message, args, err)
+		args = append(args, err)
+		Error(message, args...)
 	}
 }
 
