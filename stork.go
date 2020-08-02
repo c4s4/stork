@@ -253,7 +253,7 @@ func RunScript(dir, script string) error {
 	for _, query := range strings.Split(string(source), ";\n") {
 		query := strings.TrimSpace(query)
 		if query != "" {
-			if _, err := db.Exec(query); err != nil {
+			if _, err := tx.Exec(query); err != nil {
 				tx.Rollback()
 				if err = RecordResult(script, err); err != nil {
 					return err
