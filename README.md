@@ -33,6 +33,7 @@ To get help, type:
 $ stork -help
 Usage: stork [-env=file] [-init] [-dry] [-mute] [-white] [-version] dir
 -env=file  Dotenv file to load
+-upto=XYZ  Run scripts up to the one starting with XYZ
 -init      Run all scripts
 -dry       Dry run (won't execute scripts)
 -mute      Don't print logs
@@ -56,6 +57,8 @@ You indicate this dotenv file with *-env=file* option.
 The user to run migration script must be granted rights to create database and access stork and target databases.
 
 With *-init* option, *stOrk* will erase table where are stored scripts that were already passed, and thus all migration scripts will run.
+
+*-upto* will run script which index is up to this value. Thus, if we have scripts *000_init.sql*, *001_first.sql* and *002_second.sqm*, the option `-upto=1` will run first two scripts if they not already passed, because they have an index lower or equal.
 
 *-dry* will print scripts that should run but won't run them.
 

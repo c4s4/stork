@@ -11,14 +11,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 const (
-	// RegexpScript is the regexp for scripts to run
-	RegexpScript = `^\d+.*\.sql$`
 	// QueryMetaExists is the query to check that meta table exists
 	QueryMetaExists = `
 	SELECT count(*) FROM stork.script;
@@ -59,11 +58,18 @@ var db *sql.DB
 var mute bool
 var white bool
 
+// RegexpScript is the regexp for scripts to run
+var RegexpScript = regexp.MustCompile(`^\d+.*\.sql$`)
+
+// RegexpIndex is the regexp to extract script index
+var RegexpIndex = regexp.MustCompile(`^\d+`)
+
 // ParseCommandLine does what you think
-func ParseCommandLine() (string, string, bool, bool, bool, bool, bool, bool) {
+func ParseCommandLine() (string, string, string, bool, bool, bool, bool, bool, bool) {
 	flag.Usage = func() {
 		fmt.Println(`Usage: stork [-env=file] [-init] [-fill] [-dry] [-mute] [-white] [-version] dir
 -env=file  Dotenv file to load
+-upto=XYZ  Run scripts up to the one starting with XYZ
 -init      Run all scripts
 -fill      Fill script table with all migration scripts
 -dry       Dry run (won't execute scripts)
@@ -73,6 +79,7 @@ func ParseCommandLine() (string, string, bool, bool, bool, bool, bool, bool) {
 dir        Directory of migration scripts`)
 	}
 	env := flag.String("env", "", "Dotenv file to load")
+	upto := flag.String("upto", "", "Run scripts up to the one starting with XYZ")
 	init := flag.Bool("init", false, "Run all scripts")
 	fill := flag.Bool("fill", false, "Fill script table with all migration scripts")
 	mute := flag.Bool("mute", false, "Don't print logs")
@@ -88,7 +95,7 @@ dir        Directory of migration scripts`)
 	if len(dirs) == 1 {
 		dir = dirs[0]
 	}
-	return *env, dir, *init, *fill, *dry, *mute, *white, *version
+	return *env, dir, *upto, *init, *fill, *dry, *mute, *white, *version
 }
 
 // Print prints given text if not mute
@@ -198,11 +205,7 @@ func ScriptsList(dir string) ([]string, error) {
 	}
 	var scripts []string
 	for _, file := range files {
-		match, err := regexp.MatchString(RegexpScript, strings.ToLower(file.Name()))
-		if err != nil {
-			return nil, err
-		}
-		if match {
+		if RegexpScript.MatchString(strings.ToLower(file.Name())) {
 			scripts = append(scripts, file.Name())
 		}
 	}
@@ -284,8 +287,23 @@ func RecordResult(script string, err error) error {
 	return nil
 }
 
+// StrToInt converts string to integer
+func StrToInt(str string) int {
+	i, err := strconv.Atoi(str)
+	CheckError(err, "bad script index '%s': %v", str)
+	return i
+}
+
+// AfterUpto tells if given script is after upto limit
+func AfterUpto(script, upto string) bool {
+	if upto == "" {
+		return false
+	}
+	return StrToInt(RegexpIndex.FindString(script)) > StrToInt(upto)
+}
+
 // RunFill fills script table with migrations scripts
-func RunFill(dir string) {
+func RunFill(dir, upto string) {
 	err := EraseMetaTable()
 	CheckError(err, "erasing meta table: %v")
 	err = CreateMetaTable()
@@ -293,6 +311,9 @@ func RunFill(dir string) {
 	scripts, err := ScriptsList(dir)
 	CheckError(err, "getting scripts list: %v")
 	for _, script := range scripts {
+		if AfterUpto(script, upto) {
+			break
+		}
 		Print("Filling script %s", script)
 		err = RecordResult(script, err)
 		CheckError(err, "recording script: %v")
@@ -300,7 +321,7 @@ func RunFill(dir string) {
 }
 
 // RunDry runs dry migrations
-func RunDry(dir string, init bool) {
+func RunDry(dir, upto string, init bool) {
 	if init {
 		Print("Erasing meta table")
 		Print("Creating meta table")
@@ -308,6 +329,9 @@ func RunDry(dir string, init bool) {
 	scripts, err := ScriptsList(dir)
 	CheckError(err, "getting scripts list: %v")
 	for _, script := range scripts {
+		if AfterUpto(script, upto) {
+			break
+		}
 		passed, err := ScriptPassed(script)
 		CheckError(err, "determining if script %s passed: %v", script)
 		if !passed || init {
@@ -319,7 +343,7 @@ func RunDry(dir string, init bool) {
 }
 
 // RunMain runs migrations
-func RunMain(dir string, init bool) {
+func RunMain(dir, upto string, init bool) {
 	if init {
 		err := EraseMetaTable()
 		CheckError(err, "erasing meta table: %v")
@@ -329,6 +353,9 @@ func RunMain(dir string, init bool) {
 	err = CreateMetaTable()
 	CheckError(err, "creating meta tables: %v")
 	for _, script := range scripts {
+		if AfterUpto(script, upto) {
+			break
+		}
 		passed, err := ScriptPassed(script)
 		CheckError(err, "determining if script %s passed: %v", script)
 		if !passed {
@@ -341,9 +368,9 @@ func RunMain(dir string, init bool) {
 }
 
 func main() {
-	var env, dir string
+	var env, dir, upto string
 	var init, fill, dry, version bool
-	env, dir, init, fill, dry, mute, white, version = ParseCommandLine()
+	env, dir, upto, init, fill, dry, mute, white, version = ParseCommandLine()
 	if version {
 		Print(Version)
 		os.Exit(0)
@@ -355,11 +382,11 @@ func main() {
 	db = ConnectDatabase()
 	defer db.Close()
 	if fill {
-		RunFill(dir)
+		RunFill(dir, upto)
 	} else if dry {
-		RunDry(dir, init)
+		RunDry(dir, upto, init)
 	} else {
-		RunMain(dir, init)
+		RunMain(dir, upto, init)
 	}
 	PrintOK()
 }
