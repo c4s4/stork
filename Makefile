@@ -46,5 +46,9 @@ publish: docker # Publish docker image
 	@docker push casa/stork:$(VERSION)
 	@docker push casa/stork:latest
 
-release: go-tag publish go-deploy go-archive # Perform a release (must pass VERSION=X.Y.Z on command line)
+version: # Check that version was passed on command line
+	$(title)
+	@test '$(VERSION)' == 'UNKNOWN' || (echo "$(RED)ERROR$(END) you must pass VERSION=X.Y.Z on command line to release"; exit 1)
+
+release: version go-tag publish go-deploy go-archive # Perform a release (must pass VERSION=X.Y.Z on command line)
 	@echo "$(GRE)OK$(END) Release done!"
