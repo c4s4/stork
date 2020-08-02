@@ -48,7 +48,10 @@ publish: docker # Publish docker image
 
 version: # Check that version was passed on command line
 	$(title)
-	@test '$(VERSION)' == 'UNKNOWN' || (echo "$(RED)ERROR$(END) you must pass VERSION=X.Y.Z on command line to release"; exit 1)
+	@if [ "$(VERSION)" = "UNKNOWN" ]; then \
+		echo "$(RED)ERROR$(END) you must pass VERSION=X.Y.Z on command line to release"; \
+		exit 1; \
+	fi
 
 release: version go-tag publish go-deploy go-archive # Perform a release (must pass VERSION=X.Y.Z on command line)
 	@echo "$(GRE)OK$(END) Release done!"
