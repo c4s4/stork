@@ -2,6 +2,6 @@
 
 INSERT INTO test.user (name, email) VALUES ('test', 'test@example.com');
 
--- now an invalid query
+-- invalid query, uncomment to check that scripts run in a transaction
 
-FOO BAR;
+-- FOO BAR;
