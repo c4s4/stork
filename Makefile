@@ -30,21 +30,9 @@ test: go-build # Run test
 	$(title)
 	@$(BUILD_DIR)/stork -env=.env -init sql
 
-docker: go-clean # Build docker image
-	$(title)
-	@mkdir -p $(BUILD_DIR)
-	@CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags "-s -f" -o $(BUILD_DIR)/stork .
-	@docker build -t casa/stork:$(VERSION) .
-	@docker tag casa/stork:$(VERSION) casa/stork:latest
-
-test-docker: # Test docker image
+test-docker: go-docker # Test docker image
 	$(title)
 	@docker run --network host --rm --volume=$(shell pwd)/sql:/sql --env-file=.env casa/stork -init /sql
-
-publish: docker # Publish docker image
-	$(title)
-	@docker push casa/stork:$(VERSION)
-	@docker push casa/stork:latest
 
 version: # Check that version was passed on command line
 	$(title)
@@ -53,5 +41,5 @@ version: # Check that version was passed on command line
 		exit 1; \
 	fi
 
-release: version go-tag publish go-deploy go-archive # Perform a release (must pass VERSION=X.Y.Z on command line)
+release: version go-tag go-publish go-deploy go-archive # Perform a release (must pass VERSION=X.Y.Z on command line)
 	@echo "$(GRE)OK$(END) Release done!"
