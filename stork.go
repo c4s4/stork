@@ -258,9 +258,7 @@ func RunScript(dir, script string) error {
 		if query != "" {
 			if _, err := tx.Exec(query); err != nil {
 				tx.Rollback()
-				if err = RecordResult(script, err); err != nil {
-					return err
-				}
+				RecordResult(script, err)
 				Error("running script %s: %v", script, err)
 			}
 		}
@@ -271,7 +269,7 @@ func RunScript(dir, script string) error {
 }
 
 // RecordResult record script result in meta table
-func RecordResult(script string, err error) error {
+func RecordResult(script string, err error) {
 	var success bool
 	var message string
 	if err != nil {
@@ -282,9 +280,9 @@ func RecordResult(script string, err error) error {
 		message = ""
 	}
 	if _, err = db.Exec(QueryRecordResult, script, success, message); err != nil {
-		return err
+		message := fmt.Sprintf("Could not write report: %v", err)
+		println(message)
 	}
-	return nil
 }
 
 // StrToInt converts string to integer
@@ -315,8 +313,7 @@ func RunFill(dir, upto string) {
 			break
 		}
 		Print("Filling script %s", script)
-		err = RecordResult(script, err)
-		CheckError(err, "recording script: %v")
+		RecordResult(script, err)
 	}
 }
 
