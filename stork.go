@@ -33,8 +33,6 @@ const (
 		id INTEGER NOT NULL AUTO_INCREMENT,
 		name TEXT NOT NULL,
 		date TIMESTAMP NOT NULL,
-		success BOOLEAN NOT NULL,
-		error TEXT,
 		PRIMARY KEY (id)
 	);
 	`
@@ -42,19 +40,19 @@ const (
 	QueryScriptPassed = `
 	SELECT count(*)
 	  FROM stork.script
-	 WHERE name = ?
-	   AND success = 1;
+	 WHERE name = ?;
 	`
 	// QueryRecordResult is the query to record script passing
 	QueryRecordResult = `
-	INSERT INTO stork.script (name, success, error)
-	VALUES (?, ?, ?);
+	INSERT INTO stork.script (name)
+	VALUES (?);
 	`
 )
 
 // Version should be provided at compile time
 var Version string
 var db *sql.DB
+var tx *sql.Tx
 var mute bool
 var white bool
 
@@ -118,6 +116,8 @@ func Error(text string, args ...interface{}) {
 		text = fmt.Sprintf(text, args...)
 	}
 	println(error + text)
+	tx.Rollback()
+	db.Close()
 	os.Exit(1)
 }
 
@@ -168,15 +168,18 @@ func LoadEnv(filename string) error {
 }
 
 // ConnectDatabase returns database connection
-func ConnectDatabase() *sql.DB {
+func ConnectDatabase() {
 	var err error
 	source := os.Getenv("MYSQL_USERNAME") + ":" + os.Getenv("MYSQL_PASSWORD") +
 		"@tcp(" + os.Getenv("MYSQL_HOSTNAME") + ")/"
-	db, err := sql.Open("mysql", source)
+	db, err = sql.Open("mysql", source)
 	if err != nil {
 		Error("connecting database: %v", err)
 	}
-	return db
+	tx, err = db.Begin()
+	if err != nil {
+		Error("starting transaction: %v", err)
+	}
 }
 
 // EraseMetaTable initializes meta tables if necessary
@@ -228,61 +231,13 @@ func ExecuteScript(source string) error {
 	for _, query := range strings.Split(string(source), ";\n") {
 		query := strings.TrimSpace(query)
 		if query != "" {
-			_, err := db.Exec(query)
+			_, err := tx.Exec(query)
 			if err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-// RunScript runs given script
-func RunScript(dir, script string) error {
-	Print("Running script %s", script)
-	file, err := os.Open(filepath.Join(dir, script))
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	source, err := ioutil.ReadAll(file)
-	if err != nil {
-		return err
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	for _, query := range strings.Split(string(source), ";\n") {
-		query := strings.TrimSpace(query)
-		if query != "" {
-			if _, err := tx.Exec(query); err != nil {
-				tx.Rollback()
-				RecordResult(script, err)
-				Error("running script %s: %v", script, err)
-			}
-		}
-	}
-	tx.Commit()
-	RecordResult(script, nil)
-	return nil
-}
-
-// RecordResult record script result in meta table
-func RecordResult(script string, err error) {
-	var success bool
-	var message string
-	if err != nil {
-		success = false
-		message = err.Error()
-	} else {
-		success = true
-		message = ""
-	}
-	if _, err = db.Exec(QueryRecordResult, script, success, message); err != nil {
-		message := fmt.Sprintf("Could not write report: %v", err)
-		println(message)
-	}
 }
 
 // StrToInt converts string to integer
@@ -300,43 +255,25 @@ func AfterUpto(script, upto string) bool {
 	return StrToInt(RegexpIndex.FindString(script)) > StrToInt(upto)
 }
 
-// RunFill fills script table with migrations scripts
-func RunFill(dir, upto string) {
-	err := EraseMetaTable()
-	CheckError(err, "erasing meta table: %v")
-	err = CreateMetaTable()
-	CheckError(err, "creating meta tables: %v")
-	scripts, err := ScriptsList(dir)
-	CheckError(err, "getting scripts list: %v")
-	for _, script := range scripts {
-		if AfterUpto(script, upto) {
-			break
-		}
-		Print("Filling script %s", script)
-		RecordResult(script, err)
+// RunScript runs given script
+func RunScript(dir, script string) error {
+	Print("Running script %s", script)
+	file, err := os.Open(filepath.Join(dir, script))
+	if err != nil {
+		return err
 	}
-}
-
-// RunDry runs dry migrations
-func RunDry(dir, upto string, init bool) {
-	if init {
-		Print("Erasing meta table")
-		Print("Creating meta table")
+	defer file.Close()
+	source, err := ioutil.ReadAll(file)
+	if err != nil {
+		return err
 	}
-	scripts, err := ScriptsList(dir)
-	CheckError(err, "getting scripts list: %v")
-	for _, script := range scripts {
-		if AfterUpto(script, upto) {
-			break
-		}
-		passed, err := ScriptPassed(script)
-		CheckError(err, "determining if script %s passed: %v", script)
-		if !passed || init {
-			Print("Running script %s", script)
-		} else {
-			Print("Skipping script %s", script)
-		}
+	if err := ExecuteScript(string(source)); err != nil {
+		Error("running script %s: %v", script, err)
 	}
+	if _, err := tx.Exec(QueryRecordResult, script); err != nil {
+		Error("recording result for script %s: %v", script, err)
+	}
+	return nil
 }
 
 // RunMain runs migrations
@@ -364,6 +301,47 @@ func RunMain(dir, upto string, init bool) {
 	}
 }
 
+// RunFill fills script table with migrations scripts
+func RunFill(dir, upto string) {
+	err := EraseMetaTable()
+	CheckError(err, "erasing meta table: %v")
+	err = CreateMetaTable()
+	CheckError(err, "creating meta tables: %v")
+	scripts, err := ScriptsList(dir)
+	CheckError(err, "getting scripts list: %v")
+	for _, script := range scripts {
+		if AfterUpto(script, upto) {
+			break
+		}
+		Print("Filling script %s", script)
+		if _, err := tx.Exec(QueryRecordResult, script); err != nil {
+			Error("filling script %s: %v", script, err)
+		}
+	}
+}
+
+// RunDry runs dry migrations
+func RunDry(dir, upto string, init bool) {
+	if init {
+		Print("Erasing meta table")
+		Print("Creating meta table")
+	}
+	scripts, err := ScriptsList(dir)
+	CheckError(err, "getting scripts list: %v")
+	for _, script := range scripts {
+		if AfterUpto(script, upto) {
+			break
+		}
+		passed, err := ScriptPassed(script)
+		CheckError(err, "determining if script %s passed: %v", script)
+		if !passed || init {
+			Print("Running script %s", script)
+		} else {
+			Print("Skipping script %s", script)
+		}
+	}
+}
+
 func main() {
 	var env, dir, upto string
 	var init, fill, dry, version bool
@@ -376,8 +354,9 @@ func main() {
 		err := LoadEnv(env)
 		CheckError(err, "loading dotenv file %s: %v", env)
 	}
-	db = ConnectDatabase()
+	ConnectDatabase()
 	defer db.Close()
+	defer tx.Commit()
 	if fill {
 		RunFill(dir, upto)
 	} else if dry {
