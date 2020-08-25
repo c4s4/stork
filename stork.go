@@ -32,9 +32,9 @@ const (
 	CREATE TABLE stork.script (
 		id INTEGER NOT NULL AUTO_INCREMENT,
 		name TEXT NOT NULL,
-		date TIMESTAMP NOT NULL,
+		date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (id)
-	);
+	) ENGINE = INNODB;
 	`
 	// QueryScriptPassed is the query to determine if a script already passed
 	QueryScriptPassed = `
@@ -116,8 +116,12 @@ func Error(text string, args ...interface{}) {
 		text = fmt.Sprintf(text, args...)
 	}
 	println(error + text)
-	tx.Rollback()
-	db.Close()
+	if tx != nil {
+		tx.Rollback()
+	}
+	if db != nil {
+		db.Close()
+	}
 	os.Exit(1)
 }
 
@@ -171,7 +175,7 @@ func LoadEnv(filename string) error {
 func ConnectDatabase() {
 	var err error
 	source := os.Getenv("MYSQL_USERNAME") + ":" + os.Getenv("MYSQL_PASSWORD") +
-		"@tcp(" + os.Getenv("MYSQL_HOSTNAME") + ")/"
+		"@tcp(" + os.Getenv("MYSQL_HOSTNAME") + ")/?autocommit=false"
 	db, err = sql.Open("mysql", source)
 	if err != nil {
 		Error("connecting database: %v", err)
