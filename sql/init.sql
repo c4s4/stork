@@ -1,5 +1,5 @@
 -- initialize test database
 
-CREATE USER 'stork'@'%' IDENTIFIED BY 'stork';
-GRANT ALL PRIVILEGES ON *.* TO 'stork'@'%';
+CREATE USER 'stork'@'localhost' IDENTIFIED BY 'stork';
+GRANT ALL PRIVILEGES ON *.* TO 'stork'@'localhost';
 FLUSH PRIVILEGES;
