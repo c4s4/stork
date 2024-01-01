@@ -1,6 +1,6 @@
 # Parent Makefiles https://github.com/c4s4/make
 
-include ~/.make/Golang.mk
+include ~/.make/golang.mk
 include config.mk
 include .env
 export
