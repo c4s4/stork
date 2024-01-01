@@ -2,13 +2,16 @@
 #
 # Installation script for Unix platforms. To run installation, type :
 #
-#     sh -c "$(curl https://sweetohm.net/dist/stork/install)"
+# $ sh -c "$(curl https://sweetohm.net/dist/${NAME}/install)"
 #
 # or (if you don't have curl installed):
 #
-#     sh -c "$(wget -O - https://sweetohm.net/dist/stork/install)"
+# $ sh -c "$(wget -O - https://sweetohm.net/dist/${NAME}/install)"
 
 set -e
+
+NAME="stork"
+DIST_URL="https://sweetohm.net/dist"
 
 # get OS and ARCH and build binary name
 os=`uname | tr '[:upper:]' '[:lower:]'`
@@ -18,14 +21,14 @@ if [ "$arch" = "i386" ]; then
     arch="386"
 elif [ "$arch" = "x86_64" ]; then
     arch="amd64"
-elif [ "$arch" = "arm" ]; then
-    arch="arm"
+elif [ "$arch" = "aarch64" ]; then
+    arch="arm64"
 fi
 
 echo "os: ${os}"
 echo "arch: ${arch}"
 
-binary="stork-${os}-${arch}"
+binary="${NAME}-${os}-${arch}"
 
 # set default installation directory
 if [ -d "/opt/local/bin" ]
@@ -56,9 +59,9 @@ else
     exit 1
 fi
 
-# download binary in /tmp/stork and make it executable
-${command} /tmp/stork https://sweetohm.net/dist/stork/${binary}
-chmod +x /tmp/stork
+# download binary in /tmp/${NAME} and make it executable
+${command} /tmp/${NAME} ${DIST_URL}/${NAME}/${binary}
+chmod +x /tmp/${NAME}
 
 # prompt for installation directory
 read -p "Installation directory [${DEFAULT_DIR}]? " directory
@@ -70,10 +73,10 @@ fi
 # copy binary to installation directory
 if [ -w "${directory}" ]
 then
-    mv /tmp/stork ${directory}
+    mv /tmp/${NAME} ${directory}
 else
-    sudo mv /tmp/stork ${directory}
-    sudo chown root: ${directory}/stork
+    sudo mv /tmp/${NAME} ${directory}
+    sudo chown root: ${directory}/${NAME}
 fi
 
-echo "stork installed in '${directory}' directory"
+echo "${NAME} installed in '${directory}' directory"
